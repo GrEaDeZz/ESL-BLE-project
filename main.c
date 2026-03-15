@@ -66,6 +66,19 @@ static ble_uuid_t m_adv_uuids[] =                                               
     {ESTC_SERVICE_UUID, BLE_UUID_TYPE_VENDOR_BEGIN}
 };
 
+// Переменные для данных
+static uint32_t m_char2_value = 0;
+static uint32_t m_char3_value = 0;
+static uint16_t m_char2_len = sizeof(uint32_t);
+static uint16_t m_char3_len = sizeof(uint32_t);
+
+// Cтруктуры параметров для отправки
+static ble_gatts_hvx_params_t p_hvx_params2 = {0};
+static ble_gatts_hvx_params_t p_hvx_params3 = {0};
+
+APP_TIMER_DEF(m_update_timer2);
+APP_TIMER_DEF(m_update_timer3);
+
 
 static void advertising_start(void);
 
@@ -224,16 +237,67 @@ static void conn_params_init(void)
     APP_ERROR_CHECK(err_code);
 }
 
+static void update_char2(void * p_context)
+{
+    if (m_estc_service.connection_handle == BLE_CONN_HANDLE_INVALID)
+        return; 
+
+    ble_gatts_hvx_params_t* p_hvx_params = (ble_gatts_hvx_params_t*)p_context;
+
+    m_char2_len = sizeof(uint32_t);
+    
+    m_char2_value = rand() % 100;
+
+    ret_code_t err_code =sd_ble_gatts_hvx(m_estc_service.connection_handle, p_hvx_params);
+    if (err_code == NRF_SUCCESS)
+        NRF_LOG_INFO("INDICATION Value: %d", m_char2_value);
+}
+
+static void update_char3(void * p_context)
+{
+    if (m_estc_service.connection_handle == BLE_CONN_HANDLE_INVALID)
+        return;
+
+    ble_gatts_hvx_params_t* p_hvx_params = (ble_gatts_hvx_params_t*)p_context;
+
+    m_char3_len = sizeof(uint32_t);
+    
+    m_char3_value = rand() % 1000;
+
+    ret_code_t err_code =sd_ble_gatts_hvx(m_estc_service.connection_handle, p_hvx_params);
+    if (err_code == NRF_SUCCESS)
+        NRF_LOG_INFO("NOTIFICATION Value: %d", m_char3_value);
+}
 
 /**@brief Function for starting timers.
  */
 static void application_timers_start(void)
 {
-    /* YOUR_JOB: Start your timers. below is an example of how to start a timer.
-       ret_code_t err_code;
-       err_code = app_timer_start(m_app_timer_id, TIMER_INTERVAL, NULL);
-       APP_ERROR_CHECK(err_code); */
+    ret_code_t err_code;
 
+    // Инициализация таймеров
+    err_code = app_timer_create(&m_update_timer2, APP_TIMER_MODE_REPEATED, update_char2);
+    APP_ERROR_CHECK(err_code);
+    err_code = app_timer_create(&m_update_timer3, APP_TIMER_MODE_REPEATED, update_char3);
+    APP_ERROR_CHECK(err_code);
+
+    // Настраиваем параметры для 2 характеристики (Indication)
+    p_hvx_params2.handle = m_estc_service.char_2_handle.value_handle;
+    p_hvx_params2.p_data = (uint8_t*)&m_char2_value;
+    p_hvx_params2.p_len  = &m_char2_len;
+    p_hvx_params2.type   = BLE_GATT_HVX_INDICATION;
+
+    // Настраиваем параметры для 3 характеристики (Notification)
+    p_hvx_params3.handle = m_estc_service.char_3_handle.value_handle; 
+    p_hvx_params3.p_data = (uint8_t*)&m_char3_value;                  
+    p_hvx_params3.p_len  = &m_char3_len;                              
+    p_hvx_params3.type   = BLE_GATT_HVX_NOTIFICATION;
+
+    // Запускаем таймеры
+    err_code = app_timer_start(m_update_timer2, APP_TIMER_TICKS(1500), &p_hvx_params2);
+    APP_ERROR_CHECK(err_code);
+    err_code = app_timer_start(m_update_timer3, APP_TIMER_TICKS(2500), &p_hvx_params3);
+    APP_ERROR_CHECK(err_code);
 }
 
 
