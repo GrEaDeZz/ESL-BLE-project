@@ -10,23 +10,21 @@
 
 #define ESTC_SERVICE_UUID 0xEC72
 
-#define ESTC_GATT_CHAR_1_UUID 0x6066
+#define ESTC_GATT_CHAR_STATE_UUID 0x6066
 
-#define ESTC_GATT_CHAR_2_UUID 0x6067
-
-#define ESTC_GATT_CHAR_3_UUID 0x6068
+#define ESTC_GATT_CHAR_COLOR_UUID 0x6067
 
 typedef struct
 {
     uint8_t  uuid_type;
     uint16_t service_handle;
     uint16_t connection_handle;
-    ble_gatts_char_handles_t char_1_handle;
-    ble_gatts_char_handles_t char_2_handle;
-    ble_gatts_char_handles_t char_3_handle;
-    uint32_t char_1_value;
-    uint32_t char_2_value;
-    uint32_t char_3_value;
+
+    ble_gatts_char_handles_t led_state_handle;
+    ble_gatts_char_handles_t led_color_handle;
+
+    uint8_t  led_state;
+    uint8_t  led_color[3];
 } ble_estc_service_t;
 
 ret_code_t estc_ble_service_init(ble_estc_service_t *service);

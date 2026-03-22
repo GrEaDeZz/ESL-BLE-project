@@ -93,8 +93,10 @@ SRC_FILES += \
   $(SDK_ROOT)/components/ble/common/ble_conn_params.c \
   $(SDK_ROOT)/components/ble/common/ble_advdata.c \
   $(SDK_ROOT)/components/ble/ble_advertising/ble_advertising.c \
+  $(SDK_ROOT)/modules/nrfx/drivers/src/nrfx_pwm.c \
   $(PROJ_DIR)/estc_service.c \
   $(PROJ_DIR)/main.c \
+  $(PROJ_DIR)/pwm_handler.c \
 
 # Include folders common to all targets
 INC_FOLDERS += \

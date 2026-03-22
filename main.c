@@ -31,6 +31,7 @@
 #include "nrf_log_backend_usb.h"
 
 #include "estc_service.h"
+#include "pwm_handler.h"
 
 
 #define DEVICE_NAME                     "Roman Arhipenko"                                  /**< Name of device. Will be included in the advertising data. */
@@ -66,19 +67,101 @@ static ble_uuid_t m_adv_uuids[] =                                               
     {ESTC_SERVICE_UUID, BLE_UUID_TYPE_VENDOR_BEGIN}
 };
 
-// Переменные для данных
-static uint16_t m_char2_len = sizeof(uint32_t);
-static uint16_t m_char3_len = sizeof(uint32_t);
+#define LED_1_Y_PIN     6
+#define LED_2_R_PIN     8
+#define LED_2_G_PIN     41
+#define LED_2_B_PIN     12
 
-// Cтруктуры параметров для отправки
-static ble_gatts_hvx_params_t p_hvx_params2 = {0};
-static ble_gatts_hvx_params_t p_hvx_params3 = {0};
+static const uint32_t led_pins[4] = {
+    LED_1_Y_PIN,
+    LED_2_R_PIN,
+    LED_2_G_PIN,
+    LED_2_B_PIN
+};
 
-APP_TIMER_DEF(m_update_timer2);
-APP_TIMER_DEF(m_update_timer3);
+#define CONFIG_FILE_ID   0x1111
+#define CONFIG_REC_KEY   0x2222
 
 
 static void advertising_start(void);
+
+static void idle_state_handle(void);
+
+static uint32_t m_led_config_word = 0;
+static volatile bool m_fds_initialized = false;
+
+static void fds_evt_handler(fds_evt_t const * p_evt)
+{
+    if (p_evt->id == FDS_EVT_INIT && p_evt->result == NRF_SUCCESS)
+    {
+        m_fds_initialized = true;
+    }
+}
+
+// Функция загрузки настроек при старте
+static void flash_config_load(void)
+{
+    ret_code_t error_code;
+    
+    error_code = fds_register(fds_evt_handler);
+    APP_ERROR_CHECK(error_code);
+    error_code = fds_init();
+    APP_ERROR_CHECK(error_code);
+    
+    while (!m_fds_initialized)
+    {
+        idle_state_handle(); 
+    }
+
+    fds_record_desc_t desc = {0};
+    fds_find_token_t  tok  = {0};
+    
+    error_code = fds_record_find(CONFIG_FILE_ID, CONFIG_REC_KEY, &desc, &tok);
+
+    if (error_code == NRF_SUCCESS)
+    {
+        fds_flash_record_t config_rec = {0};
+        
+        error_code = fds_record_open(&desc, &config_rec);
+        APP_ERROR_CHECK(error_code);
+        
+        m_led_config_word = *((uint32_t *)config_rec.p_data);
+        fds_record_close(&desc);
+        
+        m_estc_service.led_state    = (m_led_config_word >> 24) & 0xFF;
+        m_estc_service.led_color[0] = (m_led_config_word >> 16) & 0xFF;
+        m_estc_service.led_color[1] = (m_led_config_word >> 8) & 0xFF;
+        m_estc_service.led_color[2] = (m_led_config_word) & 0xFF;
+        
+        NRF_LOG_INFO("Config loaded from Flash");
+    }
+    else
+        NRF_LOG_INFO("No Flash config found");
+}
+
+// Функция сохранения настроек
+static void flash_config_save(void)
+{
+    m_led_config_word = (m_estc_service.led_state << 24) | 
+                        (m_estc_service.led_color[0] << 16) | 
+                        (m_estc_service.led_color[1] << 8) | 
+                        (m_estc_service.led_color[2]);
+
+    fds_record_t rec = {
+        .file_id           = CONFIG_FILE_ID,
+        .key               = CONFIG_REC_KEY,
+        .data.p_data       = &m_led_config_word,
+        .data.length_words = 1
+    };
+
+    fds_record_desc_t desc = {0};
+    fds_find_token_t  tok  = {0};
+    
+    if (fds_record_find(CONFIG_FILE_ID, CONFIG_REC_KEY, &desc, &tok) == NRF_SUCCESS)
+        fds_record_update(&desc, &rec);
+    else
+        fds_record_write(&desc, &rec);
+}
 
 
 /**@brief Callback function for asserts in the SoftDevice.
@@ -178,16 +261,6 @@ static void services_init(void)
 
     err_code = estc_ble_service_init(&m_estc_service);
     APP_ERROR_CHECK(err_code);
-
-    p_hvx_params2.handle = m_estc_service.char_2_handle.value_handle;
-    p_hvx_params2.type   = BLE_GATT_HVX_INDICATION;
-    p_hvx_params2.p_len  = &m_char2_len;
-    p_hvx_params2.p_data = (uint8_t*)&m_estc_service.char_2_value;
-
-    p_hvx_params3.handle = m_estc_service.char_3_handle.value_handle; 
-    p_hvx_params3.type   = BLE_GATT_HVX_NOTIFICATION;
-    p_hvx_params3.p_len  = &m_char3_len;                              
-    p_hvx_params3.p_data = (uint8_t*)&m_estc_service.char_3_value;
 }
 
 
@@ -245,57 +318,6 @@ static void conn_params_init(void)
     APP_ERROR_CHECK(err_code);
 }
 
-static void update_char2(void * p_context)
-{
-    if (m_estc_service.connection_handle == BLE_CONN_HANDLE_INVALID)
-        return; 
-
-    ble_gatts_hvx_params_t* p_hvx_params = (ble_gatts_hvx_params_t*)p_context;
-
-    m_char2_len = sizeof(uint32_t);
-    
-    m_estc_service.char_2_value = rand() % 100;
-
-    ret_code_t err_code =sd_ble_gatts_hvx(m_estc_service.connection_handle, p_hvx_params);
-    if (err_code == NRF_SUCCESS)
-        NRF_LOG_INFO("INDICATION Value: %d", m_estc_service.char_2_value);
-}
-
-static void update_char3(void * p_context)
-{
-    if (m_estc_service.connection_handle == BLE_CONN_HANDLE_INVALID)
-        return;
-
-    ble_gatts_hvx_params_t* p_hvx_params = (ble_gatts_hvx_params_t*)p_context;
-
-    m_char3_len = sizeof(uint32_t);
-    
-    m_estc_service.char_3_value = rand() % 1000;
-
-    ret_code_t err_code =sd_ble_gatts_hvx(m_estc_service.connection_handle, p_hvx_params);
-    if (err_code == NRF_SUCCESS)
-        NRF_LOG_INFO("NOTIFICATION Value: %d", m_estc_service.char_3_value);
-}
-
-/**@brief Function for starting timers.
- */
-static void application_timers_start(void)
-{
-    ret_code_t err_code;
-
-    // Инициализация таймеров
-    err_code = app_timer_create(&m_update_timer2, APP_TIMER_MODE_REPEATED, update_char2);
-    APP_ERROR_CHECK(err_code);
-    err_code = app_timer_create(&m_update_timer3, APP_TIMER_MODE_REPEATED, update_char3);
-    APP_ERROR_CHECK(err_code);
-
-    // Запускаем таймеры
-    err_code = app_timer_start(m_update_timer2, APP_TIMER_TICKS(1500), &p_hvx_params2);
-    APP_ERROR_CHECK(err_code);
-    err_code = app_timer_start(m_update_timer3, APP_TIMER_TICKS(2500), &p_hvx_params3);
-    APP_ERROR_CHECK(err_code);
-}
-
 
 /**@brief Function for handling advertising events.
  *
@@ -317,6 +339,23 @@ static void on_adv_evt(ble_adv_evt_t ble_adv_evt)
 
         default:
             break;
+    }
+}
+
+// Функция для применения текущих настроек к светодиоду
+static void apply_led_state(void)
+{
+    if (m_estc_service.led_state == 0)
+    {
+        pwm_handler_set_rgb(0, 0, 0);
+    }
+    else
+    {
+        uint16_t r = (m_estc_service.led_color[0] * 1000) / 255;
+        uint16_t g = (m_estc_service.led_color[1] * 1000) / 255;
+        uint16_t b = (m_estc_service.led_color[2] * 1000) / 255;
+        
+        pwm_handler_set_rgb(r, g, b);
     }
 }
 
@@ -372,6 +411,14 @@ static void ble_evt_handler(ble_evt_t const * p_ble_evt, void * p_context)
             err_code = sd_ble_gap_disconnect(p_ble_evt->evt.gatts_evt.conn_handle,
                                              BLE_HCI_REMOTE_USER_TERMINATED_CONNECTION);
             APP_ERROR_CHECK(err_code);
+            break;
+        case BLE_GATTS_EVT_WRITE:           
+            if ((p_ble_evt->evt.gatts_evt.params.write.handle == m_estc_service.led_state_handle.value_handle) ||
+                (p_ble_evt->evt.gatts_evt.params.write.handle == m_estc_service.led_color_handle.value_handle))
+            {
+                apply_led_state();
+                flash_config_save();
+            }
             break;
 
         default:
@@ -470,7 +517,7 @@ static void buttons_leds_init(void)
 {
     ret_code_t err_code;
 
-    err_code = bsp_init(BSP_INIT_LEDS | BSP_INIT_BUTTONS, bsp_event_handler);
+    err_code = bsp_init(BSP_INIT_BUTTONS, bsp_event_handler);
     APP_ERROR_CHECK(err_code);
 
     err_code = bsp_btn_ble_init(NULL, NULL);
@@ -538,9 +585,12 @@ int main(void)
     advertising_init();
     conn_params_init();
 
+    pwm_handler_init(led_pins);
+    flash_config_load();
+    apply_led_state();
+
     // Start execution.
     NRF_LOG_INFO("ESTC advertising example started.");
-    application_timers_start();
 
     advertising_start();
 
