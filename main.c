@@ -67,8 +67,6 @@ static ble_uuid_t m_adv_uuids[] =                                               
 };
 
 // Переменные для данных
-static uint32_t m_char2_value = 0;
-static uint32_t m_char3_value = 0;
 static uint16_t m_char2_len = sizeof(uint32_t);
 static uint16_t m_char3_len = sizeof(uint32_t);
 
@@ -180,6 +178,16 @@ static void services_init(void)
 
     err_code = estc_ble_service_init(&m_estc_service);
     APP_ERROR_CHECK(err_code);
+
+    p_hvx_params2.handle = m_estc_service.char_2_handle.value_handle;
+    p_hvx_params2.type   = BLE_GATT_HVX_INDICATION;
+    p_hvx_params2.p_len  = &m_char2_len;
+    p_hvx_params2.p_data = (uint8_t*)&m_estc_service.char_2_value;
+
+    p_hvx_params3.handle = m_estc_service.char_3_handle.value_handle; 
+    p_hvx_params3.type   = BLE_GATT_HVX_NOTIFICATION;
+    p_hvx_params3.p_len  = &m_char3_len;                              
+    p_hvx_params3.p_data = (uint8_t*)&m_estc_service.char_3_value;
 }
 
 
@@ -246,11 +254,11 @@ static void update_char2(void * p_context)
 
     m_char2_len = sizeof(uint32_t);
     
-    m_char2_value = rand() % 100;
+    m_estc_service.char_2_value = rand() % 100;
 
     ret_code_t err_code =sd_ble_gatts_hvx(m_estc_service.connection_handle, p_hvx_params);
     if (err_code == NRF_SUCCESS)
-        NRF_LOG_INFO("INDICATION Value: %d", m_char2_value);
+        NRF_LOG_INFO("INDICATION Value: %d", m_estc_service.char_2_value);
 }
 
 static void update_char3(void * p_context)
@@ -262,11 +270,11 @@ static void update_char3(void * p_context)
 
     m_char3_len = sizeof(uint32_t);
     
-    m_char3_value = rand() % 1000;
+    m_estc_service.char_3_value = rand() % 1000;
 
     ret_code_t err_code =sd_ble_gatts_hvx(m_estc_service.connection_handle, p_hvx_params);
     if (err_code == NRF_SUCCESS)
-        NRF_LOG_INFO("NOTIFICATION Value: %d", m_char3_value);
+        NRF_LOG_INFO("NOTIFICATION Value: %d", m_estc_service.char_3_value);
 }
 
 /**@brief Function for starting timers.
@@ -280,18 +288,6 @@ static void application_timers_start(void)
     APP_ERROR_CHECK(err_code);
     err_code = app_timer_create(&m_update_timer3, APP_TIMER_MODE_REPEATED, update_char3);
     APP_ERROR_CHECK(err_code);
-
-    // Настраиваем параметры для 2 характеристики (Indication)
-    p_hvx_params2.handle = m_estc_service.char_2_handle.value_handle;
-    p_hvx_params2.p_data = (uint8_t*)&m_char2_value;
-    p_hvx_params2.p_len  = &m_char2_len;
-    p_hvx_params2.type   = BLE_GATT_HVX_INDICATION;
-
-    // Настраиваем параметры для 3 характеристики (Notification)
-    p_hvx_params3.handle = m_estc_service.char_3_handle.value_handle; 
-    p_hvx_params3.p_data = (uint8_t*)&m_char3_value;                  
-    p_hvx_params3.p_len  = &m_char3_len;                              
-    p_hvx_params3.type   = BLE_GATT_HVX_NOTIFICATION;
 
     // Запускаем таймеры
     err_code = app_timer_start(m_update_timer2, APP_TIMER_TICKS(1500), &p_hvx_params2);
