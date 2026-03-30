@@ -40,9 +40,12 @@ void pwm_handler_init(const uint32_t *led_pins)
 }
 
 // Установка RGB
-void pwm_handler_set_rgb(uint16_t r, uint16_t g, uint16_t b)
+void pwm_handler_set_rgb(uint8_t r, uint8_t g, uint8_t b)
 {
-    m_seq_values.channel_1 = (r > PWM_TOP_VALUE) ? PWM_TOP_VALUE : r;
-    m_seq_values.channel_2 = (g > PWM_TOP_VALUE) ? PWM_TOP_VALUE : g;
-    m_seq_values.channel_3 = (b > PWM_TOP_VALUE) ? PWM_TOP_VALUE : b;
+    uint16_t r_end = (r * 1000) / 255;
+    uint16_t g_end = (g * 1000) / 255;
+    uint16_t b_end = (b * 1000) / 255;
+    m_seq_values.channel_1 = r_end;
+    m_seq_values.channel_2 = g_end;
+    m_seq_values.channel_3 = b_end;
 }

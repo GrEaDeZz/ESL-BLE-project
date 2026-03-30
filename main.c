@@ -351,11 +351,9 @@ static void apply_led_state(void)
     }
     else
     {
-        uint16_t r = (m_estc_service.led_color[0] * 1000) / 255;
-        uint16_t g = (m_estc_service.led_color[1] * 1000) / 255;
-        uint16_t b = (m_estc_service.led_color[2] * 1000) / 255;
-        
-        pwm_handler_set_rgb(r, g, b);
+        pwm_handler_set_rgb(m_estc_service.led_color[0],
+                            m_estc_service.led_color[1],
+                            m_estc_service.led_color[2]);
     }
 }
 
@@ -420,7 +418,26 @@ static void ble_evt_handler(ble_evt_t const * p_ble_evt, void * p_context)
                 flash_config_save();
             }
             break;
+        case BLE_GAP_EVT_SEC_PARAMS_REQUEST:
+        {
+            // Создаем структуру с возможностями
+            ble_gap_sec_params_t sec_params;
+            memset(&sec_params, 0, sizeof(ble_gap_sec_params_t));
+            
+            // Настраиваем режим Just Works и передаем серверу
+            sec_params.bond         = 0;
+            sec_params.mitm         = 0;
+            sec_params.lesc         = 0;
+            sec_params.io_caps      = BLE_GAP_IO_CAPS_NONE;
+            sec_params.min_key_size = 7;
+            sec_params.max_key_size = 16;
 
+            err_code = sd_ble_gap_sec_params_reply(p_ble_evt->evt.gap_evt.conn_handle, 
+                                                   BLE_GAP_SEC_STATUS_SUCCESS, 
+                                                   &sec_params, 
+                                                   NULL);
+            APP_ERROR_CHECK(err_code);
+        } break;
         default:
             // No implementation needed.
             break;
